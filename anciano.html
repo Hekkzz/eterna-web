@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel del Usuario - ETERNA</title>
+  <link rel="stylesheet" href="style.css" />
+  <script defer src="script.js"></script>
+</head>
+<body class="panel">
+  <header class="panel-header">
+    <h1>Bienvenido a ETERNA 👵</h1>
+    <a href="index.html" class="logout">Cerrar sesión</a>
+  </header>
+
+  <main class="panel-content">
+    <section class="intro">
+      <h2>Cuidadores Disponibles</h2>
+      <p>Explora a los cuidadores registrados y elige al que mejor se adapte a tus necesidades.</p>
+      <input type="text" id="buscar-cuidador" placeholder="Buscar por nombre o especialidad..." />
+    </section>
+
+    <section class="cards" id="lista-cuidadores">
+      <!-- Cuidadores generados dinámicamente -->
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>© 2025 ETERNA - Tu tranquilidad es nuestra misión.</p>
+  </footer>
+
+  <script>
+    // Simulación de cuidadores (luego se pueden traer de base de datos)
+    const cuidadores = [
+      { nombre: "Ana López", profesion: "Enfermera", costo: 150, horario: "Lunes a Viernes", experiencia: "3 años de experiencia con adultos mayores." },
+      { nombre: "Carlos Ruiz", profesion: "Cuidador especializado", costo: 120, horario: "Turno nocturno", experiencia: "Experto en cuidados postoperatorios." },
+      { nombre: "María González", profesion: "Terapeuta ocupacional", costo: 180, horario: "Fines de semana", experiencia: "Enfocada en estimulación cognitiva y emocional." }
+    ];
+
+    const lista = document.getElementById("lista-cuidadores");
+
+    cuidadores.forEach(c => {
+      const card = document.createElement("div");
+      card.classList.add("card");
+      card.innerHTML = `
+        <img src="assets/img/cuidador${Math.floor(Math.random()*3)+1}.jpg" alt="Foto de ${c.nombre}">
+        <h3>${c.nombre}</h3>
+        <p><strong>${c.profesion}</strong></p>
+        <p>Costo: $${c.costo} MXN/hora</p>
+        <p>${c.experiencia}</p>
+        <p><small>Horario: ${c.horario}</small></p>
+        <button class="btn-primary">Solicitar</button>
+      `;
+      lista.appendChild(card);
+    });
+  </script>
+</body>
+</html>

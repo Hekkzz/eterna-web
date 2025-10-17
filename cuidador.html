@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel del Cuidador - ETERNA</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="panel">
+  <header class="panel-header">
+    <h1>Panel del Cuidador 👨‍⚕️</h1>
+    <a href="index.html" class="logout">Cerrar sesión</a>
+  </header>
+
+  <main class="panel-content">
+    <!-- PERFIL DEL CUIDADOR -->
+    <section class="perfil">
+      <h2>Mi Perfil</h2>
+      <form id="perfil-form">
+        <input type="text" placeholder="Nombre completo" value="Carlos Ruiz" />
+        <input type="text" placeholder="Profesión / Especialidad" value="Cuidador especializado" />
+        <textarea placeholder="Aptitudes y experiencia">Experto en cuidados postoperatorios.</textarea>
+        <input type="number" placeholder="Costo por hora (MXN)" value="120" />
+        <input type="text" placeholder="Horarios disponibles" value="Lunes a Viernes" />
+        <button type="submit" class="btn-secondary">Guardar cambios</button>
+      </form>
+    </section>
+
+    <!-- SOLICITUDES -->
+    <section class="solicitudes">
+      <h2>Solicitudes recibidas</h2>
+      <div id="lista-solicitudes" class="cards"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>© 2025 ETERNA - Cuidar es un arte, y tú eres parte de él.</p>
+  </footer>
+
+  <script>
+    const solicitudes = [
+      { nombre: "María García", edad: 83, cuidados: "Asistencia diaria, apoyo emocional." },
+      { nombre: "Don José Hernández", edad: 78, cuidados: "Monitoreo de presión y movilidad." }
+    ];
+
+    const contenedor = document.getElementById("lista-solicitudes");
+
+    solicitudes.forEach(s => {
+      const card = document.createElement("div");
+      card.classList.add("card");
+      card.innerHTML = `
+        <h3>${s.nombre}</h3>
+        <p>Edad: ${s.edad} años</p>
+        <p>${s.cuidados}</p>
+        <button class="btn-primary">Ver detalles</button>
+      `;
+      contenedor.appendChild(card);
+    });
+  </script>
+</body>
+</html>

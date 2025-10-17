@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ETERNA - Iniciar Sesión / Registro</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="auth.js"></script>
+</head>
+<body class="login-page">
+  <div class="login-container">
+    <h1>Bienvenido a <span>ETERNA</span></h1>
+    <div class="tabs">
+      <button id="btn-login" class="active">Iniciar Sesión</button>
+      <button id="btn-register">Registrarse</button>
+    </div>
+
+    <!-- FORMULARIO LOGIN -->
+    <form id="login-form" class="form active">
+      <input type="text" id="login-user" placeholder="Usuario" required>
+      <input type="password" id="login-pass" placeholder="Contraseña" minlength="8" required>
+      <button type="submit" class="btn-primary">Entrar</button>
+    </form>
+
+    <!-- FORMULARIO REGISTRO -->
+    <form id="register-form" class="form hidden">
+      <select id="user-type" required>
+        <option value="">Selecciona tipo de usuario</option>
+        <option value="anciano">Anciano / Tutor</option>
+        <option value="cuidador">Cuidador</option>
+      </select>
+
+      <div id="register-fields"></div>
+
+      <button type="submit" class="btn-secondary">Registrar</button>
+    </form>
+  </div>
+</body>
+</html>
