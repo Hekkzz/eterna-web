@@ -1,58 +1,562 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Panel del Usuario - ETERNA</title>
-  <link rel="stylesheet" href="style.css" />
-  <script defer src="script.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ETERNA - Panel Anciano</title>
+  <link rel="stylesheet" href="style.css">
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+    import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCuoj_jI1EkDsSGbndjXqrvdB6IHWKTpgM",
+      authDomain: "eterna-web.firebaseapp.com",
+      projectId: "eterna-web",
+      storageBucket: "eterna-web.appspot.com",
+      messagingSenderId: "1086096476187",
+      appId: "1:1086096476187:web:66ecaf06365b2ec548d0be"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    let currentUserId = null;
+    let userData = null;
+
+    // Convertir archivo a Base64
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // Validar tamaño
+    function validateFileSize(file, maxSizeKB = 800) {
+      const maxSize = maxSizeKB * 1024;
+      if (file.size > maxSize) {
+        throw new Error(`El archivo es muy grande. Máximo ${maxSizeKB}KB.`);
+      }
+    }
+
+    // Verificar sesión
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        window.location.href = "login.html";
+      } else {
+        currentUserId = user.uid;
+        const docRef = doc(db, "usuarios", user.uid);
+        const userDoc = await getDoc(docRef);
+
+        if (userDoc.exists()) {
+          userData = userDoc.data();
+          
+          if (userData.tipo !== "anciano") {
+            alert("Acceso restringido. Redirigiendo al panel correcto...");
+            window.location.href = "cuidador.html";
+            return;
+          }
+          
+          mostrarDatosUsuario(userData);
+          
+          if (userData.tieneHistorial) {
+            cargarHistorial();
+          }
+
+          // Cargar cuidadores y solicitudes
+          cargarCuidadores();
+          cargarMisSolicitudes();
+        }
+      }
+    });
+
+    async function cargarHistorial() {
+      try {
+        const archivoDoc = await getDoc(doc(db, "archivos", currentUserId));
+        if (archivoDoc.exists()) {
+          const archivoData = archivoDoc.data();
+          document.getElementById("historial-nombre").textContent = archivoData.historialNombre || "historial";
+          document.getElementById("historial-preview").src = archivoData.historialBase64;
+          document.getElementById("historial-download").href = archivoData.historialBase64;
+          document.getElementById("historial-download").download = archivoData.historialNombre;
+          document.getElementById("historial-section").style.display = "block";
+        }
+      } catch (error) {
+        console.error("Error al cargar historial:", error);
+      }
+    }
+
+    function mostrarDatosUsuario(data) {
+      document.getElementById("nombre").textContent = data.nombre || "No especificado";
+      document.getElementById("curp").textContent = data.curp || "No especificado";
+      document.getElementById("telefono").textContent = data.telefono || "No especificado";
+      document.getElementById("edad").textContent = data.edad || "No especificada";
+      document.getElementById("email").textContent = data.email || "No especificado";
+      document.getElementById("cuidados").textContent = data.cuidados || "Ninguno especificado";
+      document.getElementById("fecha-registro").textContent = 
+        data.fechaRegistro ? new Date(data.fechaRegistro).toLocaleDateString('es-MX') : "No disponible";
+    }
+
+    // Cargar cuidadores disponibles
+    async function cargarCuidadores() {
+      try {
+        const cuidadoresQuery = query(
+          collection(db, "usuarios"),
+          where("tipo", "==", "cuidador"),
+          where("disponible", "==", true)
+        );
+        
+        const snapshot = await getDocs(cuidadoresQuery);
+        const cuidadoresContainer = document.getElementById("cuidadores-list");
+        cuidadoresContainer.innerHTML = "";
+
+        if (snapshot.empty) {
+          cuidadoresContainer.innerHTML = "<p>No hay cuidadores disponibles en este momento.</p>";
+          return;
+        }
+
+        snapshot.forEach((doc) => {
+          const cuidador = doc.data();
+          const cuidadorId = doc.id;
+          
+          const card = document.createElement("div");
+          card.className = "cuidador-card";
+          card.innerHTML = `
+            ${cuidador.fotoPerfil ? `<img src="${cuidador.fotoPerfil}" alt="${cuidador.nombre}" class="cuidador-foto">` : '<div class="cuidador-foto-placeholder">👤</div>'}
+            <h3>${cuidador.nombre}</h3>
+            <p><strong>Profesión:</strong> ${cuidador.profesion}</p>
+            <p><strong>Teléfono:</strong> ${cuidador.telefono}</p>
+            <p><strong>Costo:</strong> ${cuidador.costo} MXN/hora</p>
+            <p><strong>Horario:</strong> ${cuidador.horario}</p>
+            <p class="experiencia-preview">${cuidador.experiencia.substring(0, 100)}...</p>
+            <div class="card-actions">
+              <button onclick="verPerfilCuidador('${cuidadorId}')" class="btn-link">Ver perfil completo</button>
+              <button onclick="solicitarCuidador('${cuidadorId}')" class="btn-primary">Solicitar</button>
+            </div>
+          `;
+          cuidadoresContainer.appendChild(card);
+        });
+      } catch (error) {
+        console.error("Error al cargar cuidadores:", error);
+        alert("Error al cargar cuidadores: " + error.message);
+      }
+    }
+
+    // Ver perfil completo del cuidador - CORREGIDO
+    window.verPerfilCuidador = async (cuidadorId) => {
+      try {
+        const cuidadorDoc = await getDoc(doc(db, "usuarios", cuidadorId));
+        if (!cuidadorDoc.exists()) return;
+        
+        const cuidador = cuidadorDoc.data();
+        const modal = document.getElementById("modal-perfil");
+        const contenido = document.getElementById("modal-contenido");
+        
+        // Verificar si tiene antecedentes no penales
+        let antecedentesHTML = "";
+        if (cuidador.tieneAntecedentes) {
+          try {
+            const antecedentesDoc = await getDoc(doc(db, "documentos", cuidadorId));
+            if (antecedentesDoc.exists()) {
+              const antecedentes = antecedentesDoc.data();
+              antecedentesHTML = `
+                <div class="info-full">
+                  <strong>📋 Antecedentes No Penales:</strong>
+                  <div class="historial-preview">
+                    <img src="${antecedentes.antecedentesBase64}" alt="Antecedentes" style="max-width: 300px; max-height: 300px; object-fit: contain; border-radius: 8px;">
+                    <a href="${antecedentes.antecedentesBase64}" download="${antecedentes.antecedentesNombre}" class="btn-link" style="margin-top: 0.5rem;">Descargar ${antecedentes.antecedentesNombre}</a>
+                  </div>
+                </div>
+              `;
+            }
+          } catch (error) {
+            console.log("No se encontraron antecedentes");
+          }
+        }
+        
+        // CORREGIDO: Solo el contenido del modal, sin HTML completo
+        contenido.innerHTML = `
+          <div class="modal-header">
+            ${cuidador.fotoPerfil ? `<img src="${cuidador.fotoPerfil}" alt="${cuidador.nombre}" class="modal-foto">` : '<div class="modal-foto-placeholder">👤</div>'}
+            <h2>${cuidador.nombre}</h2>
+          </div>
+          <div class="modal-body">
+            <div class="info-item">
+              <strong>CURP:</strong>
+              <span>${cuidador.curp}</span>
+            </div>
+            <div class="info-item">
+              <strong>Teléfono:</strong>
+              <span>${cuidador.telefono}</span>
+            </div>
+            <div class="info-item">
+              <strong>Profesión:</strong>
+              <span>${cuidador.profesion}</span>
+            </div>
+            <div class="info-item">
+              <strong>Costo por hora:</strong>
+              <span>${cuidador.costo} MXN</span>
+            </div>
+            <div class="info-item">
+              <strong>Horario:</strong>
+              <span>${cuidador.horario}</span>
+            </div>
+            <div class="info-full">
+              <strong>Experiencia y aptitudes:</strong>
+              <p>${cuidador.experiencia}</p>
+            </div>
+            <div class="info-item">
+              <strong>Calificación:</strong>
+              <span>${cuidador.calificacion ? '⭐'.repeat(Math.round(cuidador.calificacion)) : 'Sin calificaciones'} (${cuidador.numeroCalificaciones || 0} opiniones)</span>
+            </div>
+            ${antecedentesHTML}
+          </div>
+          <button onclick="solicitarCuidador('${cuidadorId}')" class="btn-primary" style="width: 100%; margin-top: 1rem;">Solicitar este cuidador</button>
+        `;
+        
+        modal.style.display = "flex";
+      } catch (error) {
+        console.error("Error al cargar perfil:", error);
+        alert("Error al cargar perfil del cuidador");
+      }
+    };
+
+    // Solicitar cuidador
+    window.solicitarCuidador = async (cuidadorId) => {
+      if (!confirm("¿Deseas enviar una solicitud a este cuidador?")) return;
+
+      try {
+        // Verificar que userData esté cargado
+        if (!userData) {
+          alert("Error: No se han cargado tus datos. Por favor recarga la página.");
+          return;
+        }
+
+        // Verificar si ya existe una solicitud pendiente
+        const solicitudesQuery = query(
+          collection(db, "solicitudes"),
+          where("ancianoId", "==", currentUserId),
+          where("cuidadorId", "==", cuidadorId),
+          where("estado", "==", "pendiente")
+        );
+        
+        const existentes = await getDocs(solicitudesQuery);
+        
+        if (!existentes.empty) {
+          alert("Ya tienes una solicitud pendiente con este cuidador.");
+          return;
+        }
+
+        // Crear nueva solicitud con valores seguros (evitar undefined)
+        await addDoc(collection(db, "solicitudes"), {
+          ancianoId: currentUserId,
+          ancianoNombre: userData.nombre || "No especificado",
+          ancianoCurp: userData.curp || "No especificado",
+          ancianoTelefono: userData.telefono || "No especificado",
+          ancianoEdad: userData.edad || 0,
+          ancianoCuidados: userData.cuidados || "Ninguno especificado",
+          cuidadorId: cuidadorId,
+          estado: "pendiente",
+          fechaSolicitud: new Date().toISOString(),
+          mensajeRechazo: null
+        });
+
+        alert("¡Solicitud enviada exitosamente! El cuidador recibirá tu solicitud.");
+        cerrarModal();
+        cargarMisSolicitudes();
+      } catch (error) {
+        console.error("Error al enviar solicitud:", error);
+        alert("Error al enviar solicitud: " + error.message);
+      }
+    };
+
+    // Cargar mis solicitudes
+    async function cargarMisSolicitudes() {
+      try {
+        const solicitudesQuery = query(
+          collection(db, "solicitudes"),
+          where("ancianoId", "==", currentUserId)
+        );
+        
+        const snapshot = await getDocs(solicitudesQuery);
+        const solicitudesContainer = document.getElementById("mis-solicitudes-list");
+        solicitudesContainer.innerHTML = "";
+
+        if (snapshot.empty) {
+          solicitudesContainer.innerHTML = "<p>No tienes solicitudes enviadas.</p>";
+          return;
+        }
+
+        for (const docSnap of snapshot.docs) {
+          const solicitud = docSnap.data();
+          const solicitudId = docSnap.id;
+          
+          // Obtener datos del cuidador
+          const cuidadorDoc = await getDoc(doc(db, "usuarios", solicitud.cuidadorId));
+          const cuidador = cuidadorDoc.exists() ? cuidadorDoc.data() : null;
+
+          const card = document.createElement("div");
+          card.className = `solicitud-card estado-${solicitud.estado}`;
+          
+          let estadoTexto = "";
+          let estadoClass = "";
+          let acciones = "";
+
+          if (solicitud.estado === "pendiente") {
+            estadoTexto = "⏳ Pendiente";
+            estadoClass = "badge-pendiente";
+            acciones = `<button onclick="cancelarSolicitud('${solicitudId}')" class="btn-secondary-small">Cancelar solicitud</button>`;
+          } else if (solicitud.estado === "aceptada") {
+            estadoTexto = "✅ Aceptada";
+            estadoClass = "badge-aceptada";
+          } else if (solicitud.estado === "rechazada") {
+            estadoTexto = "❌ Rechazada";
+            estadoClass = "badge-rechazada";
+          }
+
+          card.innerHTML = `
+            <div class="solicitud-header">
+              ${cuidador && cuidador.fotoPerfil ? `<img src="${cuidador.fotoPerfil}" alt="${cuidador.nombre}" class="solicitud-foto">` : '<div class="solicitud-foto-placeholder">👤</div>'}
+              <div>
+                <h3>${cuidador ? cuidador.nombre : 'Cuidador no disponible'}</h3>
+                <span class="badge ${estadoClass}">${estadoTexto}</span>
+              </div>
+            </div>
+            ${cuidador ? `
+              <p><strong>Profesión:</strong> ${cuidador.profesion}</p>
+              <p><strong>Costo:</strong> $${cuidador.costo} MXN/hora</p>
+            ` : ''}
+            <p><strong>Fecha de solicitud:</strong> ${new Date(solicitud.fechaSolicitud).toLocaleDateString('es-MX')}</p>
+            ${solicitud.estado === "rechazada" && solicitud.mensajeRechazo ? `
+              <div class="mensaje-rechazo">
+                <strong>Motivo del rechazo:</strong>
+                <p>${solicitud.mensajeRechazo}</p>
+              </div>
+            ` : ''}
+            ${solicitud.estado === "aceptada" ? `
+              <div class="mensaje-aceptada">
+                <p>¡El cuidador aceptó tu solicitud! Pronto se pondrá en contacto contigo.</p>
+              </div>
+            ` : ''}
+            <div class="card-actions">
+              ${acciones}
+            </div>
+          `;
+          solicitudesContainer.appendChild(card);
+        }
+      } catch (error) {
+        console.error("Error al cargar solicitudes:", error);
+      }
+    }
+
+    // Cancelar solicitud
+    window.cancelarSolicitud = async (solicitudId) => {
+      if (!confirm("¿Estás seguro de cancelar esta solicitud?")) return;
+
+      try {
+        await deleteDoc(doc(db, "solicitudes", solicitudId));
+        alert("Solicitud cancelada.");
+        cargarMisSolicitudes();
+      } catch (error) {
+        console.error("Error al cancelar:", error);
+        alert("Error al cancelar solicitud: " + error.message);
+      }
+    };
+
+    // Cerrar modal
+    window.cerrarModal = () => {
+      document.getElementById("modal-perfil").style.display = "none";
+    };
+
+    document.addEventListener("DOMContentLoaded", () => {
+      // Actualizar historial clínico
+      const updateBtn = document.getElementById("update-btn");
+      const fileInput = document.getElementById("nuevo-historial");
+
+      updateBtn.addEventListener("click", async () => {
+        const file = fileInput.files[0];
+        if (!file) {
+          alert("Selecciona un archivo primero.");
+          return;
+        }
+
+        try {
+          validateFileSize(file, 800);
+          
+          updateBtn.disabled = true;
+          updateBtn.textContent = "Subiendo...";
+
+          const historialBase64 = await fileToBase64(file);
+
+          await setDoc(doc(db, "archivos", currentUserId), {
+            userId: currentUserId,
+            tipo: "historial",
+            historialBase64: historialBase64,
+            historialNombre: file.name,
+            historialTipo: file.type,
+            fechaSubida: new Date().toISOString()
+          });
+
+          await updateDoc(doc(db, "usuarios", currentUserId), { 
+            tieneHistorial: true,
+            historialNombre: file.name
+          });
+
+          alert("Historial clínico actualizado correctamente.");
+          
+          document.getElementById("historial-nombre").textContent = file.name;
+          document.getElementById("historial-preview").src = historialBase64;
+          document.getElementById("historial-download").href = historialBase64;
+          document.getElementById("historial-download").download = file.name;
+          document.getElementById("historial-section").style.display = "block";
+          fileInput.value = "";
+
+        } catch (error) {
+          console.error("Error:", error);
+          alert(error.message || "Error al actualizar historial");
+        } finally {
+          updateBtn.disabled = false;
+          updateBtn.textContent = "Subir historial";
+        }
+      });
+
+      // Cerrar sesión
+      document.getElementById("logout-btn").addEventListener("click", async () => {
+        await signOut(auth);
+        localStorage.clear();
+        window.location.href = "login.html";
+      });
+
+      // Cerrar modal al hacer clic fuera
+      window.onclick = (event) => {
+        const modal = document.getElementById("modal-perfil");
+        if (event.target === modal) {
+          cerrarModal();
+        }
+      };
+    });
+  </script>
 </head>
-<body class="panel">
-  <header class="panel-header">
-    <h1>Bienvenido a ETERNA 👵</h1>
-    <a href="index.html" class="logout">Cerrar sesión</a>
-  </header>
 
-  <main class="panel-content">
-    <section class="intro">
-      <h2>Cuidadores Disponibles</h2>
-      <p>Explora a los cuidadores registrados y elige al que mejor se adapte a tus necesidades.</p>
-      <input type="text" id="buscar-cuidador" placeholder="Buscar por nombre o especialidad..." />
-    </section>
+<body class="panel-page">
+  <div class="panel-container-large">
+    <h1>👴 Bienvenido, <span id="nombre"></span></h1>
+    
+    <!-- Pestañas de navegación -->
+    <div class="tabs-panel">
+      <button class="tab-btn active" onclick="mostrarSeccion('info')">Mi Información</button>
+      <button class="tab-btn" onclick="mostrarSeccion('cuidadores')">Buscar Cuidadores</button>
+      <button class="tab-btn" onclick="mostrarSeccion('solicitudes')">Mis Solicitudes</button>
+    </div>
 
-    <section class="cards" id="lista-cuidadores">
-      <!-- Cuidadores generados dinámicamente -->
-    </section>
-  </main>
+    <!-- Sección: Mi Información -->
+    <div id="seccion-info" class="seccion-contenido">
+      <div class="info-card">
+        <h2>📋 Información Personal</h2>
+        <div class="info-grid">
+          <div class="info-item">
+            <strong>CURP:</strong>
+            <span id="curp"></span>
+          </div>
+          <div class="info-item">
+            <strong>Teléfono:</strong>
+            <span id="telefono"></span>
+          </div>
+          <div class="info-item">
+            <strong>Edad:</strong>
+            <span id="edad"></span> años
+          </div>
+          <div class="info-item">
+            <strong>Email:</strong>
+            <span id="email"></span>
+          </div>
+          <div class="info-item">
+            <strong>Registrado:</strong>
+            <span id="fecha-registro"></span>
+          </div>
+        </div>
+        
+        <div class="info-full">
+          <strong>Cuidados especiales:</strong>
+          <p id="cuidados"></p>
+        </div>
+      </div>
 
-  <footer class="footer">
-    <p>© 2025 ETERNA - Tu tranquilidad es nuestra misión.</p>
-  </footer>
+      <div class="info-card" id="historial-section" style="display: none;">
+        <h2>📄 Historial Clínico</h2>
+        <div class="file-display-preview">
+          <div class="preview-container">
+            <img id="historial-preview" src="" alt="Vista previa" style="max-width: 200px; max-height: 200px; object-fit: contain;">
+          </div>
+          <div class="file-info">
+            <span>📎 <span id="historial-nombre"></span></span>
+            <a id="historial-download" href="#" download class="btn-link">Descargar</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-card">
+        <h2>🔄 Subir/Actualizar Historial Clínico</h2>
+        <p>Archivo máximo 800KB (PDF, JPG, PNG)</p>
+        <input type="file" id="nuevo-historial" accept=".pdf,.jpg,.jpeg,.png">
+        <button id="update-btn" class="btn-primary">Subir historial</button>
+      </div>
+    </div>
+
+    <!-- Sección: Buscar Cuidadores -->
+    <div id="seccion-cuidadores" class="seccion-contenido" style="display: none;">
+      <div class="info-card">
+        <h2>👥 Cuidadores Disponibles</h2>
+        <p>Estos son los cuidadores disponibles actualmente. Haz clic en "Ver perfil completo" para más información o "Solicitar" para enviar una solicitud.</p>
+        <div id="cuidadores-list" class="cuidadores-grid">
+          <p>Cargando cuidadores...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sección: Mis Solicitudes -->
+    <div id="seccion-solicitudes" class="seccion-contenido" style="display: none;">
+      <div class="info-card">
+        <h2>📨 Mis Solicitudes</h2>
+        <p>Aquí puedes ver el estado de tus solicitudes enviadas a los cuidadores.</p>
+        <div id="mis-solicitudes-list">
+          <p>Cargando solicitudes...</p>
+        </div>
+      </div>
+    </div>
+
+    <button id="logout-btn" class="btn-secondary">🚪 Cerrar sesión</button>
+    
+    <!-- Logo ETERNA en la esquina inferior izquierda -->
+    <div class="logo-footer">
+      <span class="logo">ETERNA</span>
+    </div>
+  </div>
+
+  <!-- Modal para ver perfil completo -->
+  <div id="modal-perfil" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="cerrarModal()">&times;</span>
+      <div id="modal-contenido"></div>
+    </div>
+  </div>
 
   <script>
-    // Simulación de cuidadores (luego se pueden traer de base de datos)
-    const cuidadores = [
-      { nombre: "Ana López", profesion: "Enfermera", costo: 150, horario: "Lunes a Viernes", experiencia: "3 años de experiencia con adultos mayores." },
-      { nombre: "Carlos Ruiz", profesion: "Cuidador especializado", costo: 120, horario: "Turno nocturno", experiencia: "Experto en cuidados postoperatorios." },
-      { nombre: "María González", profesion: "Terapeuta ocupacional", costo: 180, horario: "Fines de semana", experiencia: "Enfocada en estimulación cognitiva y emocional." }
-    ];
-
-    const lista = document.getElementById("lista-cuidadores");
-
-    cuidadores.forEach(c => {
-      const card = document.createElement("div");
-      card.classList.add("card");
-      card.innerHTML = `
-        <img src="assets/img/cuidador${Math.floor(Math.random()*3)+1}.jpg" alt="Foto de ${c.nombre}">
-        <h3>${c.nombre}</h3>
-        <p><strong>${c.profesion}</strong></p>
-        <p>Costo: $${c.costo} MXN/hora</p>
-        <p>${c.experiencia}</p>
-        <p><small>Horario: ${c.horario}</small></p>
-        <button class="btn-primary">Solicitar</button>
-      `;
-      lista.appendChild(card);
-    });
+    function mostrarSeccion(seccion) {
+      // Ocultar todas las secciones
+      document.querySelectorAll('.seccion-contenido').forEach(s => s.style.display = 'none');
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      
+      // Mostrar sección seleccionada
+      document.getElementById(`seccion-${seccion}`).style.display = 'block';
+      event.target.classList.add('active');
+    }
   </script>
 </body>
 </html>

@@ -5,8 +5,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ETERNA - Iniciar Sesión / Registro</title>
   <link rel="stylesheet" href="style.css">
-  <script defer src="auth.js"></script>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getAuth } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+    import { getFirestore } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    // Configuración de Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyCuoj_jI1EkDsSGbndjXqrvdB6IHWKTpgM",
+      authDomain: "eterna-web.firebaseapp.com",
+      projectId: "eterna-web",
+      storageBucket: "eterna-web.appspot.com",
+      messagingSenderId: "1086096476187",
+      appId: "1:1086096476187:web:66ecaf06365b2ec548d0be"
+    };
+
+    // Inicializar Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // Hacer disponibles las instancias globalmente
+    window.firebaseApp = app;
+    window.firebaseAuth = auth;
+    window.firebaseDB = db;
+  </script>
+
+  <!-- Script principal -->
+  <script type="module" src="auth.js"></script>
 </head>
+
 <body class="login-page">
   <div class="login-container">
     <h1>Bienvenido a <span>ETERNA</span></h1>
@@ -15,18 +45,18 @@
       <button id="btn-register">Registrarse</button>
     </div>
 
-    <!-- FORMULARIO LOGIN -->
+    <!-- === FORMULARIO LOGIN === -->
     <form id="login-form" class="form active">
-      <input type="text" id="login-user" placeholder="Usuario" required>
+      <input type="email" id="login-user" placeholder="Correo electrónico" required>
       <input type="password" id="login-pass" placeholder="Contraseña" minlength="8" required>
       <button type="submit" class="btn-primary">Entrar</button>
     </form>
 
-    <!-- FORMULARIO REGISTRO -->
+    <!-- === FORMULARIO REGISTRO === -->
     <form id="register-form" class="form hidden">
       <select id="user-type" required>
         <option value="">Selecciona tipo de usuario</option>
-        <option value="anciano">Anciano / Tutor</option>
+        <option value="anciano">Usuario asistido</option>
         <option value="cuidador">Cuidador</option>
       </select>
 

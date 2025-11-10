@@ -1,61 +1,624 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Panel del Cuidador - ETERNA</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ETERNA - Panel Cuidador</title>
+  <link rel="stylesheet" href="style.css">
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+    import { getFirestore, doc, getDoc, updateDoc, collection, query, where, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCuoj_jI1EkDsSGbndjXqrvdB6IHWKTpgM",
+      authDomain: "eterna-web.firebaseapp.com",
+      projectId: "eterna-web",
+      storageBucket: "eterna-web.appspot.com",
+      messagingSenderId: "1086096476187",
+      appId: "1:1086096476187:web:66ecaf06365b2ec548d0be"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    let currentUserId = null;
+    let userData = null;
+
+    // Convertir archivo a Base64
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // Validar tamaño
+    function validateFileSize(file, maxSizeKB = 500) {
+      const maxSize = maxSizeKB * 1024;
+      if (file.size > maxSize) {
+        throw new Error(`El archivo es muy grande. Máximo ${maxSizeKB}KB.`);
+      }
+    }
+
+    // Verificar sesión
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        window.location.href = "login.html";
+      } else {
+        currentUserId = user.uid;
+        const docRef = doc(db, "usuarios", user.uid);
+        const userDoc = await getDoc(docRef);
+
+        if (userDoc.exists()) {
+          userData = userDoc.data();
+          
+          if (userData.tipo !== "cuidador") {
+            alert("Acceso restringido. Redirigiendo al panel correcto...");
+            window.location.href = "anciano.html";
+            return;
+          }
+          
+          mostrarDatosUsuario(userData);
+          cargarSolicitudesRecibidas();
+        }
+      }
+    });
+
+    function mostrarDatosUsuario(data) {
+      document.getElementById("nombre").textContent = data.nombre || "No especificado";
+      document.getElementById("curp").textContent = data.curp || "No especificado";
+      document.getElementById("telefono").textContent = data.telefono || "No especificado";
+      document.getElementById("email").textContent = data.email || "No especificado";
+      document.getElementById("profesion").textContent = data.profesion || "No especificada";
+      document.getElementById("experiencia").textContent = data.experiencia || "No especificada";
+      document.getElementById("costo").textContent = `${data.costo || 0} MXN/hora`;
+      document.getElementById("horario").textContent = data.horario || "No especificado";
+      document.getElementById("fecha-registro").textContent = 
+        data.fechaRegistro ? new Date(data.fechaRegistro).toLocaleDateString('es-MX') : "No disponible";
+      
+      // Mostrar estado de disponibilidad
+      const estadoBtn = document.getElementById("estado-disponibilidad");
+      if (data.disponible) {
+        estadoBtn.textContent = "✅ Disponible";
+        estadoBtn.classList.add("disponible");
+      } else {
+        estadoBtn.textContent = "❌ No disponible";
+        estadoBtn.classList.remove("disponible");
+      }
+      
+      // Mostrar foto de perfil
+      if (data.fotoPerfil) {
+        document.getElementById("foto-perfil-img").src = data.fotoPerfil;
+        document.getElementById("foto-section").style.display = "block";
+      }
+
+      // Mostrar antecedentes si existen
+      if (data.tieneAntecedentes) {
+        cargarAntecedentes();
+      }
+    }
+
+    // Cargar antecedentes no penales
+    async function cargarAntecedentes() {
+      try {
+        const documentoDoc = await getDoc(doc(db, "documentos", currentUserId));
+        if (documentoDoc.exists()) {
+          const documentoData = documentoDoc.data();
+          document.getElementById("antecedentes-nombre").textContent = documentoData.antecedentesNombre || "antecedentes";
+          document.getElementById("antecedentes-preview").src = documentoData.antecedentesBase64;
+          document.getElementById("antecedentes-download").href = documentoData.antecedentesBase64;
+          document.getElementById("antecedentes-download").download = documentoData.antecedentesNombre;
+          document.getElementById("antecedentes-section").style.display = "block";
+        }
+      } catch (error) {
+        console.error("Error al cargar antecedentes:", error);
+      }
+    }
+
+    // Cargar solicitudes recibidas
+    async function cargarSolicitudesRecibidas() {
+      try {
+        const solicitudesQuery = query(
+          collection(db, "solicitudes"),
+          where("cuidadorId", "==", currentUserId)
+        );
+        
+        const snapshot = await getDocs(solicitudesQuery);
+        const solicitudesContainer = document.getElementById("solicitudes-list");
+        solicitudesContainer.innerHTML = "";
+
+        if (snapshot.empty) {
+          solicitudesContainer.innerHTML = "<p>No tienes solicitudes pendientes.</p>";
+          return;
+        }
+
+        // Contar solicitudes pendientes
+        let pendientes = 0;
+        snapshot.forEach(doc => {
+          if (doc.data().estado === "pendiente") pendientes++;
+        });
+        
+        document.getElementById("contador-solicitudes").textContent = pendientes;
+
+        for (const docSnap of snapshot.docs) {
+          const solicitud = docSnap.data();
+          const solicitudId = docSnap.id;
+          
+          const card = document.createElement("div");
+          card.className = `solicitud-card estado-${solicitud.estado}`;
+          
+          let estadoTexto = "";
+          let estadoClass = "";
+          let acciones = "";
+
+          if (solicitud.estado === "pendiente") {
+            estadoTexto = "⏳ Pendiente";
+            estadoClass = "badge-pendiente";
+            acciones = `
+              <button onclick="verPerfilAnciano('${solicitud.ancianoId}')" class="btn-link">Ver perfil completo</button>
+              <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                <button onclick="aceptarSolicitud('${solicitudId}')" class="btn-primary-small">✓ Aceptar</button>
+                <button onclick="mostrarModalRechazo('${solicitudId}')" class="btn-secondary-small">✗ Rechazar</button>
+              </div>
+            `;
+          } else if (solicitud.estado === "aceptada") {
+            estadoTexto = "✅ Aceptada";
+            estadoClass = "badge-aceptada";
+            acciones = `<button onclick="verPerfilAnciano('${solicitud.ancianoId}')" class="btn-link">Ver perfil</button>`;
+          } else if (solicitud.estado === "rechazada") {
+            estadoTexto = "❌ Rechazada";
+            estadoClass = "badge-rechazada";
+          }
+
+          card.innerHTML = `
+            <div class="solicitud-header">
+              <div class="solicitud-foto-placeholder">👴</div>
+              <div>
+                <h3>${solicitud.ancianoNombre}</h3>
+                <span class="badge ${estadoClass}">${estadoTexto}</span>
+              </div>
+            </div>
+            <p><strong>CURP:</strong> ${solicitud.ancianoCurp}</p>
+            <p><strong>Teléfono:</strong> ${solicitud.ancianoTelefono || 'No especificado'}</p>
+            <p><strong>Edad:</strong> ${solicitud.ancianoEdad} años</p>
+            <p><strong>Cuidados especiales:</strong> ${solicitud.ancianoCuidados}</p>
+            <p><strong>Fecha de solicitud:</strong> ${new Date(solicitud.fechaSolicitud).toLocaleDateString('es-MX')}</p>
+            ${solicitud.estado === "rechazada" && solicitud.mensajeRechazo ? `
+              <div class="mensaje-rechazo">
+                <strong>Motivo del rechazo que enviaste:</strong>
+                <p>${solicitud.mensajeRechazo}</p>
+              </div>
+            ` : ''}
+            <div class="card-actions">
+              ${acciones}
+            </div>
+          `;
+          solicitudesContainer.appendChild(card);
+        }
+      } catch (error) {
+        console.error("Error al cargar solicitudes:", error);
+      }
+    }
+
+    // Ver perfil completo del anciano
+    window.verPerfilAnciano = async (ancianoId) => {
+      try {
+        const ancianoDoc = await getDoc(doc(db, "usuarios", ancianoId));
+        if (!ancianoDoc.exists()) {
+          alert("No se pudo cargar el perfil del usuario.");
+          return;
+        }
+        
+        const anciano = ancianoDoc.data();
+        const modal = document.getElementById("modal-perfil");
+        const contenido = document.getElementById("modal-contenido");
+        
+        // Verificar si tiene historial clínico
+        let historialHTML = "";
+        try {
+          const historialDoc = await getDoc(doc(db, "archivos", ancianoId));
+          if (historialDoc.exists()) {
+            const historial = historialDoc.data();
+            historialHTML = `
+              <div class="info-full">
+                <strong>Historial Clínico:</strong>
+                <div class="historial-preview">
+                  <img src="${historial.historialBase64}" alt="Historial" style="max-width: 300px; max-height: 300px; object-fit: contain; border-radius: 8px;">
+                  <a href="${historial.historialBase64}" download="${historial.historialNombre}" class="btn-link" style="margin-top: 0.5rem;">Descargar ${historial.historialNombre}</a>
+                </div>
+              </div>
+            `;
+          }
+        } catch (error) {
+          console.log("No se encontró historial clínico");
+        }
+        
+        contenido.innerHTML = `
+          <div class="modal-header">
+            <div class="modal-foto-placeholder">👴</div>
+            <h2>${anciano.nombre}</h2>
+          </div>
+          <div class="modal-body">
+            <div class="info-item">
+              <strong>CURP:</strong>
+              <span>${anciano.curp}</span>
+            </div>
+            <div class="info-item">
+              <strong>Teléfono:</strong>
+              <span>${anciano.telefono}</span>
+            </div>
+            <div class="info-item">
+              <strong>Edad:</strong>
+              <span>${anciano.edad} años</span>
+            </div>
+            <div class="info-item">
+              <strong>Email:</strong>
+              <span>${anciano.email}</span>
+            </div>
+            <div class="info-full">
+              <strong>Cuidados especiales:</strong>
+              <p>${anciano.cuidados}</p>
+            </div>
+            ${historialHTML}
+          </div>
+        `;
+        
+        modal.style.display = "flex";
+      } catch (error) {
+        console.error("Error al cargar perfil:", error);
+        alert("Error al cargar perfil del usuario");
+      }
+    };
+
+    // Aceptar solicitud
+    window.aceptarSolicitud = async (solicitudId) => {
+      if (!confirm("¿Deseas aceptar esta solicitud?")) return;
+
+      try {
+        await updateDoc(doc(db, "solicitudes", solicitudId), {
+          estado: "aceptada",
+          fechaRespuesta: new Date().toISOString()
+        });
+
+        alert("¡Solicitud aceptada! El usuario será notificado.");
+        cargarSolicitudesRecibidas();
+      } catch (error) {
+        console.error("Error al aceptar solicitud:", error);
+        alert("Error al aceptar solicitud: " + error.message);
+      }
+    };
+
+    // Mostrar modal de rechazo
+    window.mostrarModalRechazo = (solicitudId) => {
+      const modal = document.getElementById("modal-rechazo");
+      document.getElementById("solicitud-rechazar-id").value = solicitudId;
+      document.getElementById("mensaje-rechazo").value = "";
+      modal.style.display = "flex";
+    };
+
+    // Confirmar rechazo
+    window.confirmarRechazo = async () => {
+      const solicitudId = document.getElementById("solicitud-rechazar-id").value;
+      const mensaje = document.getElementById("mensaje-rechazo").value.trim();
+
+      if (!mensaje) {
+        alert("Por favor escribe un motivo para el rechazo.");
+        return;
+      }
+
+      try {
+        await updateDoc(doc(db, "solicitudes", solicitudId), {
+          estado: "rechazada",
+          mensajeRechazo: mensaje,
+          fechaRespuesta: new Date().toISOString()
+        });
+
+        alert("Solicitud rechazada. El usuario recibirá tu mensaje.");
+        cerrarModalRechazo();
+        cargarSolicitudesRecibidas();
+      } catch (error) {
+        console.error("Error al rechazar solicitud:", error);
+        alert("Error al rechazar solicitud: " + error.message);
+      }
+    };
+
+    // Cerrar modales
+    window.cerrarModal = () => {
+      document.getElementById("modal-perfil").style.display = "none";
+    };
+
+    window.cerrarModalRechazo = () => {
+      document.getElementById("modal-rechazo").style.display = "none";
+    };
+
+    document.addEventListener("DOMContentLoaded", () => {
+      // Cambiar disponibilidad
+      document.getElementById("estado-disponibilidad").addEventListener("click", async () => {
+        const nuevoEstado = !userData.disponible;
+        
+        try {
+          await updateDoc(doc(db, "usuarios", currentUserId), { 
+            disponible: nuevoEstado 
+          });
+          
+          userData.disponible = nuevoEstado;
+          mostrarDatosUsuario(userData);
+          alert(`Estado actualizado: ${nuevoEstado ? "Disponible" : "No disponible"}`);
+        } catch (error) {
+          console.error("Error:", error);
+          alert("Error al actualizar estado: " + error.message);
+        }
+      });
+
+      // Subir/actualizar foto de perfil
+      const updateBtn = document.getElementById("update-foto-btn");
+      const fileInput = document.getElementById("nueva-foto");
+
+      updateBtn.addEventListener("click", async () => {
+        const file = fileInput.files[0];
+        if (!file) {
+          alert("Selecciona una foto primero.");
+          return;
+        }
+
+        try {
+          validateFileSize(file, 500);
+          
+          updateBtn.disabled = true;
+          updateBtn.textContent = "Subiendo...";
+
+          const fotoBase64 = await fileToBase64(file);
+
+          await updateDoc(doc(db, "usuarios", currentUserId), { 
+            fotoPerfil: fotoBase64,
+            fotoNombre: file.name
+          });
+
+          alert("Foto de perfil actualizada correctamente.");
+          
+          document.getElementById("foto-perfil-img").src = fotoBase64;
+          document.getElementById("foto-section").style.display = "block";
+          fileInput.value = "";
+
+        } catch (error) {
+          console.error("Error:", error);
+          alert(error.message || "Error al actualizar foto");
+        } finally {
+          updateBtn.disabled = false;
+          updateBtn.textContent = "Actualizar foto";
+        }
+      });
+
+      // Subir/actualizar antecedentes no penales
+      const updateAntecedentesBtn = document.getElementById("update-antecedentes-btn");
+      const antecedentesInput = document.getElementById("nuevos-antecedentes");
+
+      updateAntecedentesBtn.addEventListener("click", async () => {
+        const file = antecedentesInput.files[0];
+        if (!file) {
+          alert("Selecciona un archivo primero.");
+          return;
+        }
+
+        try {
+          validateFileSize(file, 800);
+          
+          updateAntecedentesBtn.disabled = true;
+          updateAntecedentesBtn.textContent = "Subiendo...";
+
+          const antecedentesBase64 = await fileToBase64(file);
+
+          // Guardar en colección documentos
+          await setDoc(doc(db, "documentos", currentUserId), {
+            userId: currentUserId,
+            tipo: "antecedentes",
+            antecedentesBase64: antecedentesBase64,
+            antecedentesNombre: file.name,
+            antecedentesTipo: file.type,
+            fechaSubida: new Date().toISOString()
+          });
+
+          // Actualizar usuario
+          await updateDoc(doc(db, "usuarios", currentUserId), { 
+            tieneAntecedentes: true,
+            antecedentesNombre: file.name
+          });
+
+          alert("Antecedentes No Penales actualizados correctamente.");
+          
+          // Actualizar vista
+          document.getElementById("antecedentes-nombre").textContent = file.name;
+          document.getElementById("antecedentes-preview").src = antecedentesBase64;
+          document.getElementById("antecedentes-download").href = antecedentesBase64;
+          document.getElementById("antecedentes-download").download = file.name;
+          document.getElementById("antecedentes-section").style.display = "block";
+          antecedentesInput.value = "";
+
+        } catch (error) {
+          console.error("Error:", error);
+          alert(error.message || "Error al actualizar antecedentes");
+        } finally {
+          updateAntecedentesBtn.disabled = false;
+          updateAntecedentesBtn.textContent = "Subir antecedentes";
+        }
+      });
+
+      // Cerrar sesión
+      document.getElementById("logout-btn").addEventListener("click", async () => {
+        await signOut(auth);
+        localStorage.clear();
+        window.location.href = "login.html";
+      });
+
+      // Cerrar modales al hacer clic fuera
+      window.onclick = (event) => {
+        const modalPerfil = document.getElementById("modal-perfil");
+        const modalRechazo = document.getElementById("modal-rechazo");
+        if (event.target === modalPerfil) {
+          cerrarModal();
+        }
+        if (event.target === modalRechazo) {
+          cerrarModalRechazo();
+        }
+      };
+    });
+  </script>
 </head>
-<body class="panel">
-  <header class="panel-header">
-    <h1>Panel del Cuidador 👨‍⚕️</h1>
-    <a href="index.html" class="logout">Cerrar sesión</a>
-  </header>
 
-  <main class="panel-content">
-    <!-- PERFIL DEL CUIDADOR -->
-    <section class="perfil">
-      <h2>Mi Perfil</h2>
-      <form id="perfil-form">
-        <input type="text" placeholder="Nombre completo" value="Carlos Ruiz" />
-        <input type="text" placeholder="Profesión / Especialidad" value="Cuidador especializado" />
-        <textarea placeholder="Aptitudes y experiencia">Experto en cuidados postoperatorios.</textarea>
-        <input type="number" placeholder="Costo por hora (MXN)" value="120" />
-        <input type="text" placeholder="Horarios disponibles" value="Lunes a Viernes" />
-        <button type="submit" class="btn-secondary">Guardar cambios</button>
-      </form>
-    </section>
+<body class="panel-page">
+  <div class="panel-container">
+    <h1>Cuidador - Bienvenido, <span id="nombre"></span></h1>
+    
+    <!-- Pestañas de navegación -->
+    <div class="tabs-panel">
+      <button class="tab-btn active" onclick="mostrarSeccion('info')">Mi Información</button>
+      <button class="tab-btn" onclick="mostrarSeccion('solicitudes')">
+        Solicitudes Recibidas 
+        <span class="badge-contador" id="contador-solicitudes">0</span>
+      </button>
+    </div>
 
-    <!-- SOLICITUDES -->
-    <section class="solicitudes">
-      <h2>Solicitudes recibidas</h2>
-      <div id="lista-solicitudes" class="cards"></div>
-    </section>
-  </main>
+    <!-- Sección: Mi Información -->
+    <div id="seccion-info" class="seccion-contenido">
+      <div class="info-card" id="foto-section" style="display: none;">
+        <h2>📸 Foto de Perfil</h2>
+        <div class="foto-perfil-container">
+          <img id="foto-perfil-img" src="" alt="Foto de perfil" class="foto-perfil">
+        </div>
+      </div>
 
-  <footer class="footer">
-    <p>© 2025 ETERNA - Cuidar es un arte, y tú eres parte de él.</p>
-  </footer>
+      <div class="info-card">
+        <h2>📋 Información Personal</h2>
+        <div class="info-grid">
+          <div class="info-item">
+            <strong>CURP:</strong>
+            <span id="curp"></span>
+          </div>
+          <div class="info-item">
+            <strong>Teléfono:</strong>
+            <span id="telefono"></span>
+          </div>
+          <div class="info-item">
+            <strong>Email:</strong>
+            <span id="email"></span>
+          </div>
+          <div class="info-item">
+            <strong>Profesión:</strong>
+            <span id="profesion"></span>
+          </div>
+          <div class="info-item">
+            <strong>Registrado:</strong>
+            <span id="fecha-registro"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-card">
+        <h2>💼 Información Profesional</h2>
+        <div class="info-grid">
+          <div class="info-item">
+            <strong>Costo por hora:</strong>
+            <span id="costo"></span>
+          </div>
+          <div class="info-item">
+            <strong>Horario:</strong>
+            <span id="horario"></span>
+          </div>
+        </div>
+        
+        <div class="info-full">
+          <strong>Experiencia y aptitudes:</strong>
+          <p id="experiencia"></p>
+        </div>
+        
+        <button id="estado-disponibilidad" class="btn-estado">
+          ⏳ Cargando...
+        </button>
+      </div>
+
+      <div class="info-card">
+        <h2>🔄 Subir/Actualizar Foto de Perfil</h2>
+        <p>Foto máximo 500KB (JPG, PNG)</p>
+        <input type="file" id="nueva-foto" accept=".jpg,.jpeg,.png">
+        <button id="update-foto-btn" class="btn-primary">Actualizar foto</button>
+      </div>
+
+      <div class="info-card" id="antecedentes-section" style="display: none;">
+        <h2>📋 Antecedentes No Penales</h2>
+        <div class="file-display-preview">
+          <div class="preview-container">
+            <img id="antecedentes-preview" src="" alt="Vista previa" style="max-width: 200px; max-height: 200px; object-fit: contain;">
+          </div>
+          <div class="file-info">
+            <span>📎 <span id="antecedentes-nombre"></span></span>
+            <a id="antecedentes-download" href="#" download class="btn-link">Descargar</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-card">
+        <h2>🔄 Subir/Actualizar Antecedentes No Penales</h2>
+        <p>Archivo máximo 800KB (PDF, JPG, PNG)</p>
+        <input type="file" id="nuevos-antecedentes" accept=".pdf,.jpg,.jpeg,.png">
+        <button id="update-antecedentes-btn" class="btn-primary">Subir antecedentes</button>
+      </div>
+    </div>
+
+    <!-- Sección: Solicitudes Recibidas -->
+    <div id="seccion-solicitudes" class="seccion-contenido" style="display: none;">
+      <div class="info-card">
+        <h2>📨 Solicitudes Recibidas</h2>
+        <p>Aquí puedes ver las solicitudes de usuarios que desean tus servicios.</p>
+        <div id="solicitudes-list">
+          <p>Cargando solicitudes...</p>
+        </div>
+      </div>
+    </div>
+
+    <button id="logout-btn" class="btn-secondary">Cerrar sesión</button>
+    
+    <!-- Logo ETERNA en la esquina inferior izquierda -->
+    <div class="logo-footer">
+      <span class="logo">ETERNA</span>
+    </div>
+  </div>
+
+  <!-- Modal para ver perfil del anciano -->
+  <div id="modal-perfil" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="cerrarModal()">&times;</span>
+      <div id="modal-contenido"></div>
+    </div>
+  </div>
+
+  <!-- Modal para rechazar con motivo -->
+  <div id="modal-rechazo" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="cerrarModalRechazo()">&times;</span>
+      <h2>Rechazar Solicitud</h2>
+      <p>Por favor, explica brevemente el motivo del rechazo. El usuario recibirá este mensaje.</p>
+      <textarea id="mensaje-rechazo" placeholder="Ej: Lo siento, no cuento con disponibilidad en los horarios que necesitas..." rows="5"></textarea>
+      <input type="hidden" id="solicitud-rechazar-id">
+      <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+        <button onclick="confirmarRechazo()" class="btn-primary">Enviar y Rechazar</button>
+        <button onclick="cerrarModalRechazo()" class="btn-secondary">Cancelar</button>
+      </div>
+    </div>
+  </div>
 
   <script>
-    const solicitudes = [
-      { nombre: "María García", edad: 83, cuidados: "Asistencia diaria, apoyo emocional." },
-      { nombre: "Don José Hernández", edad: 78, cuidados: "Monitoreo de presión y movilidad." }
-    ];
-
-    const contenedor = document.getElementById("lista-solicitudes");
-
-    solicitudes.forEach(s => {
-      const card = document.createElement("div");
-      card.classList.add("card");
-      card.innerHTML = `
-        <h3>${s.nombre}</h3>
-        <p>Edad: ${s.edad} años</p>
-        <p>${s.cuidados}</p>
-        <button class="btn-primary">Ver detalles</button>
-      `;
-      contenedor.appendChild(card);
-    });
+    function mostrarSeccion(seccion) {
+      document.querySelectorAll('.seccion-contenido').forEach(s => s.style.display = 'none');
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      
+      document.getElementById(`seccion-${seccion}`).style.display = 'block';
+      event.target.classList.add('active');
+    }
   </script>
 </body>
 </html>
